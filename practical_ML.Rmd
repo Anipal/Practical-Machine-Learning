@@ -1,0 +1,111 @@
+---
+title: "Practical ML Course Project"
+author: "Anisha Pal"
+date: "9 October 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Introduction
+Human Activity Recognition - HAR - has emerged as a key research area in the last years and is gaining increasing attention by the pervasive computing research community, especially for the development of context-aware systems. There are many potential applications for HAR, like: elderly monitoring, life log systems for monitoring energy expenditure and for supporting weight-loss programs, and digital assistants for weight lifting exercises.
+
+Using devices like Fitbit makes it possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.  
+
+In this project, I will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.  
+
+## Data Preprocessing  
+```{r, cache = T}
+library(caret)
+library(rpart)
+library(randomForest)
+library(corrplot)
+library(rpart.plot)
+```
+### Download the Data
+```{r, cache = T}
+trainU <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testU <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+trFile <- "./data/pml-training.csv"
+teFile  <- "./data/pml-testing.csv"
+download.file(trainU, destfile=trFile, method="curl")
+download.file(testU, destfile=teFile, method="curl")
+
+```  
+### Read the Data
+After downloading the data from the data source, we can read the two csv files into two data frames.  
+```{r, cache = T}
+trdf <- read.csv("./data/pml-training.csv")
+tedf <- read.csv("./data/pml-testing.csv")
+dim(trdf)
+dim(tedf)
+```
+The training data set contains 19622 observations and 160 variables, while the testing data set contains 20 observations and 160 variables. The "classe" variable in the training set is the outcome to predict. 
+
+### Clean the data
+In this step, we will clean the data and get rid of observations with missing values .
+```{r, cache = T}
+sum(complete.cases(trdf))
+trdf <- trdf[, colSums(is.na(trdf)) == 0] 
+tedf <- tedf[, colSums(is.na(tedf)) == 0] 
+classe <- trdf$classe
+trdel <- grepl("^X|timestamp|window", names(trdf))
+trdf <- trdf[, !trdel]
+trnew <- trdf[, sapply(trdf, is.numeric)]
+trnew$classe <- classe
+tedel <- grepl("^X|timestamp|window", names(tedf))
+tedf <- tedf[, !tedel]
+tenew <- tedf[, sapply(tedf, is.numeric)]
+```
+The cleaned training data set contains 19622 observations and 53 variables, while the testing data set contains 20 observations and 53 variables.
+### Slice the data
+The cleaned training set is split into a pure training data set (70%) and a validation data set (30%). Validation  data set will be used to conduct cross validation in later steps.  
+```{r, cache = T}
+set.seed(22600) # For reproducibile purpose
+inTrain <- createDataPartition(trnew$classe, p=0.70, list=F)
+trdata <- trnew[inTrain, ]
+tedata <- trnew[-inTrain, ]
+```
+
+## Data Modeling
+A predictive model for activity recognition is fit to the data using **Random Forest** algorithm because it automatically selects important variables and is robust to correlated covariates & outliers .**5-fold cross validation** is used.
+```{r, cache = T}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=trdata, method="rf", trainControl=controlRf, ntree=250)
+modelRf
+```
+```{r, cache = T}
+predictRf <- predict(modelRf, tedata)
+confusionMatrix(tedata$classe, predictRf)
+acc <- postResample(predictRf, tedata$classe)
+acc
+```
+```{r, cache = T}
+s <- 1 - as.numeric(confusionMatrix(tedata$classe, predictRf)$overall[1])
+s
+```
+So, the estimated accuracy of the model is 99.42% and the estimated out-of-sample error is 0.58%.
+
+## Predicting for Test Data Set
+Now, we apply the model to the original testing data set downloaded from the data source. We remove the `problem_id` column first.  
+```{r, cache = T}
+final <- predict(modelRf, tenew[, -length(names(tenew))])
+final
+```  
+
+## Appendix: Figures
+1. Correlation Matrix Visualization  
+```{r, cache = T}
+corrPlot <- cor(trdata[, -length(names(trdata))])
+corrplot(corrPlot, method="color")
+```
+2. Decision Tree Visualization
+```{r, cache = T}
+tree <- rpart(classe ~ ., data=trdata, method="class")
+prp(tree) # fast plot
